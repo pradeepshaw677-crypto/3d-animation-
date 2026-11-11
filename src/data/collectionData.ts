@@ -8,10 +8,11 @@ export interface PieceItem {
   id: number;
   lookNumber: number;
   pieceNumber: 1 | 2;
+  totalPiecesInLook: 1 | 2;
   sourceType: 'higgs_pieces' | 'solo_garment';
   /**
    * For 'higgs_pieces': pixel box [x0, x1, y0, y1] on 960x720 PIECES_SHEET.
-   * For 'solo_garment': normalized [nx0, nx1, ny0, ny1] (0..1) on the solo model image.
+   * For 'solo_garment': normalized [nx0, nx1, ny0, ny1] (0..1) on the solo model image (960x1080).
    */
   cropBox: [number, number, number, number];
   soloImageUrl?: string;
@@ -23,7 +24,7 @@ export interface PieceItem {
   mrp: string;
   mrpNumeric: number;
   discountLabel: string;
-  category: 'Couture Gowns' | 'Tailoring & Coats' | 'Indian Couture' | 'Footwear & Bags';
+  category: 'Couture Gowns' | 'Tailoring & Coats' | 'Indian Couture';
   description: string;
   fabric: string;
   pattern: string;
@@ -46,13 +47,10 @@ export interface LookEntry {
   silhouette: string;
   accentHex: string;
   sourceType: 'higgs_models' | 'solo_model';
-  /**
-   * For 'higgs_models': pixel box [x0, x1, y0, y1] on 960x540 MODELS_SHEET.
-   * For 'solo_model': normalized [nx0, nx1, ny0, ny1] (0..1) on soloImageUrl.
-   */
   modelBox: [number, number, number, number];
   soloImageUrl?: string;
-  pieceIds: [number, number];
+  pieceIds: number[];
+  firstPieceIndex: number;
 }
 
 export const HIGGS_MODELS_SHEET =
@@ -83,6 +81,20 @@ const COLOR_PALETTES: ColorOption[][] = [
   ],
 ];
 
+interface RawPieceSpec {
+  name: string;
+  subtitle: string;
+  priceNumeric: number;
+  mrpNumeric: number;
+  category: PieceItem['category'];
+  cropBox: [number, number, number, number];
+  maskNeckline?: boolean;
+  fabric: string;
+  fit: string;
+  occasion: string;
+  description: string;
+}
+
 interface RawLookSpec {
   lookNumber: number;
   title: string;
@@ -92,36 +104,12 @@ interface RawLookSpec {
   sourceType: 'higgs_models' | 'solo_model';
   modelBox: [number, number, number, number];
   soloImageUrl?: string;
-  p1: {
-    name: string;
-    subtitle: string;
-    priceNumeric: number;
-    mrpNumeric: number;
-    category: PieceItem['category'];
-    cropBox: [number, number, number, number];
-    maskNeckline?: boolean;
-    fabric: string;
-    fit: string;
-    occasion: string;
-    description: string;
-  };
-  p2: {
-    name: string;
-    subtitle: string;
-    priceNumeric: number;
-    mrpNumeric: number;
-    category: PieceItem['category'];
-    cropBox: [number, number, number, number];
-    maskNeckline?: boolean;
-    fabric: string;
-    fit: string;
-    occasion: string;
-    description: string;
-  };
+  p1: RawPieceSpec;
+  p2?: RawPieceSpec; // Optional: ONLY defined when the model wears 2 separate garments (Top + Skirt/Pants)
 }
 
 const RAW_LOOKS: RawLookSpec[] = [
-  // ================= LOOKS 1 TO 6: ORIGINAL 6 ISOLATED HIGGS MODELS & 12 ISOLATED PRODUCTS =================
+  // ================= LOOKS 1 TO 6 =================
   {
     lookNumber: 1,
     title: 'Ivory Architectural Ruffle & Pleats',
@@ -202,7 +190,7 @@ const RAW_LOOKS: RawLookSpec[] = [
     modelBox: [476, 633, 48, 496],
     p1: {
       name: 'Billow-Sleeve Blush Silk Blouse',
-      subtitle: 'Sheer blush silk georgette top with dramaticbishop sleeves',
+      subtitle: 'Sheer blush silk georgette top with dramatic bishop sleeves',
       priceNumeric: 19990,
       mrpNumeric: 32990,
       category: 'Couture Gowns',
@@ -224,7 +212,7 @@ const RAW_LOOKS: RawLookSpec[] = [
       fit: 'Sculpted A-Line Midi',
       occasion: 'Cocktail & Editorial',
       description:
-        'Architectural A-line midi skirt seamed from छह precision leather panels with silk-satin lining.',
+        'Architectural A-line midi skirt seamed from six precision leather panels with silk-satin lining.',
     },
   },
   {
@@ -263,6 +251,7 @@ const RAW_LOOKS: RawLookSpec[] = [
     },
   },
   {
+    // Look 5 wears ONE single Sage Evening Gown
     lookNumber: 5,
     title: 'Sage Botanical Pleated Couture Gown',
     subtitle: 'Paris-Mumbai Couture Capsule • Look 05',
@@ -282,19 +271,6 @@ const RAW_LOOKS: RawLookSpec[] = [
       occasion: 'Wedding Reception & Gala',
       description:
         'Artisanal micro-pleated sage green silk mousseline gown with a V-plunge bodice, tiered waist release, and thigh slit.',
-    },
-    p2: {
-      name: 'Pearl Satin Bias-Cut Inner Slip Dress',
-      subtitle: 'Luminous champagne-pearl bias-cut silk charmeuse slip',
-      priceNumeric: 18990,
-      mrpNumeric: 29990,
-      category: 'Couture Gowns',
-      cropBox: [256, 466, 492, 712],
-      fabric: '22-Momme Mulberry Silk Charmeuse',
-      fit: 'Bias-Cut Fluid Skim',
-      occasion: 'Cocktail & Resort Evening',
-      description:
-        'Cut on a true 45-degree bias from liquid silk charmeuse with delicate rouleau shoulder straps.',
     },
   },
   {
@@ -333,15 +309,16 @@ const RAW_LOOKS: RawLookSpec[] = [
     },
   },
 
-  // ================= LOOKS 7 TO 20: 14 SOLO SINGLE-MODEL PORTRAITS & ISOLATED GARMENTS =================
+  // ================= LOOKS 7 TO 20 =================
   {
+    // Single 1-Piece Gown
     lookNumber: 7,
     title: 'Crimson Architectural Organza Gown',
     subtitle: 'Solo Runway Edition • Look 07',
     silhouette: 'Sculpted Fan-Pleat Bodice & Tiered Organza Train',
     accentHex: '#991b1b',
     sourceType: 'solo_model',
-    soloImageUrl: 'assets/models/look_07.jpg',
+    soloImageUrl: 'assets/models/look_07.png',
     modelBox: [0.06, 0.94, 0.04, 0.96],
     p1: {
       name: 'Crimson Fan-Pleat Silk Organza Gown',
@@ -349,7 +326,7 @@ const RAW_LOOKS: RawLookSpec[] = [
       priceNumeric: 58990,
       mrpNumeric: 94990,
       category: 'Couture Gowns',
-      cropBox: [0.18, 0.85, 0.22, 0.88],
+      cropBox: [0.18, 0.82, 0.205, 0.87],
       maskNeckline: true,
       fabric: 'Pure Como Silk Organza',
       fit: 'Corseted Waist & Voluminous Train',
@@ -357,29 +334,16 @@ const RAW_LOOKS: RawLookSpec[] = [
       description:
         'Dramatic crimson silk organza couture gown featuring origami fan-pleated lapels, puffed rosette sleeves, and cascading asymmetric tiers.',
     },
-    p2: {
-      name: '24K Gold-Leaf Strappy Stiletto Sandals',
-      subtitle: 'Metallic gold Nappa ankle-wrap evening heels (105mm)',
-      priceNumeric: 18490,
-      mrpNumeric: 29990,
-      category: 'Footwear & Bags',
-      cropBox: [0.36, 0.68, 0.77, 0.95],
-      maskNeckline: false,
-      fabric: 'Metallic Gold Italian Nappa Leather',
-      fit: 'True to Indian/EU Size (105mm Heel)',
-      occasion: 'Bridal & Gala Footwear',
-      description:
-        'Handcrafted metallic gold stiletto sandals with asymmetric arch straps and cushioned leather footbeds.',
-    },
   },
   {
+    // 2 Separate Pieces: Blazer + Trousers
     lookNumber: 8,
     title: 'Emerald Draped Velvet Power Suit',
     subtitle: 'Solo Runway Edition • Look 08',
     silhouette: 'Asymmetric Wrap Velvet Blazer & Satin Trousers',
     accentHex: '#065f46',
     sourceType: 'solo_model',
-    soloImageUrl: 'assets/models/look_08.jpg',
+    soloImageUrl: 'assets/models/look_08.png',
     modelBox: [0.15, 0.85, 0.04, 0.96],
     p1: {
       name: 'Emerald Silk-Velvet Draped Wrap Blazer',
@@ -387,7 +351,7 @@ const RAW_LOOKS: RawLookSpec[] = [
       priceNumeric: 36990,
       mrpNumeric: 58990,
       category: 'Tailoring & Coats',
-      cropBox: [0.26, 0.72, 0.17, 0.52],
+      cropBox: [0.31, 0.69, 0.20, 0.52],
       maskNeckline: true,
       fabric: 'Silk-Viscose Plush Velvet',
       fit: 'Tailored Asymmetric Wrap',
@@ -401,7 +365,7 @@ const RAW_LOOKS: RawLookSpec[] = [
       priceNumeric: 22990,
       mrpNumeric: 36990,
       category: 'Tailoring & Coats',
-      cropBox: [0.30, 0.70, 0.45, 0.92],
+      cropBox: [0.33, 0.67, 0.46, 0.88],
       maskNeckline: false,
       fabric: 'Heavy Silk Charmeuse',
       fit: 'High-Rise Straight Wide-Leg',
@@ -411,59 +375,47 @@ const RAW_LOOKS: RawLookSpec[] = [
     },
   },
   {
+    // Single 1-Piece Trench Dress
     lookNumber: 9,
-    title: 'Royal Cobalt Sculptural Trench & Silver',
+    title: 'Royal Cobalt Sculptural Trench Dress',
     subtitle: 'Solo Runway Edition • Look 09',
-    silhouette: 'Belted Double-Faced Wool Trench & Mirror Boots',
+    silhouette: 'Belted Double-Faced Wool Trench Dress',
     accentHex: '#1d4ed8',
     sourceType: 'solo_model',
-    soloImageUrl: 'assets/models/look_09.jpg',
+    soloImageUrl: 'assets/models/look_09.png',
     modelBox: [0.15, 0.85, 0.04, 0.96],
     p1: {
-      name: 'Royal Cobalt Double-Faced Wool Trench Coat',
-      subtitle: 'Electric cobalt storm-flap belted runway overcoat',
+      name: 'Royal Cobalt Double-Faced Wool Trench Dress',
+      subtitle: 'Electric cobalt storm-flap belted runway overcoat dress',
       priceNumeric: 49990,
       mrpNumeric: 79990,
       category: 'Tailoring & Coats',
-      cropBox: [0.24, 0.74, 0.17, 0.80],
+      cropBox: [0.30, 0.70, 0.20, 0.79],
       maskNeckline: true,
       fabric: '100% Double-Faced Merino Wool',
-      fit: 'Oversized Belted Couture Coat',
+      fit: 'Belted Couture Trench Dress',
       occasion: 'Winter Luxe & Airport Editorial',
       description:
-        'Saturated royal cobalt trench coat featuring exaggerated storm flaps, tonal covered buckle belt, and tabbed cuffs.',
-    },
-    p2: {
-      name: 'Liquid Silver Mirror-Leather Ankle Boots',
-      subtitle: 'Chromatic silver block-heel runway boots',
-      priceNumeric: 24490,
-      mrpNumeric: 39990,
-      category: 'Footwear & Bags',
-      cropBox: [0.35, 0.73, 0.76, 0.96],
-      maskNeckline: false,
-      fabric: 'Mirrored Metallic Calfskin',
-      fit: 'Sculpted 85mm Block Heel',
-      occasion: 'Runway & Party Statement',
-      description:
-        'High-shine silver metallic leather ankle boots with squared toes and architectural block heels.',
+        'Saturated royal cobalt trench dress featuring exaggerated storm flaps, tonal covered buckle belt, and tabbed cuffs.',
     },
   },
   {
+    // 2 Separate Pieces: Corset Cape + Brocade Skirt
     lookNumber: 10,
-    title: 'Champagne Gold Zari Brocade Corset Gown',
+    title: 'Champagne Gold Zari Brocade Corset & Skirt',
     subtitle: 'Solo Indian Couture Edition • Look 10',
-    silhouette: 'Handwoven Banarasi Zari Corset & Floor Cape',
+    silhouette: 'Handwoven Banarasi Zari Corset & Brocade Skirt',
     accentHex: '#b45309',
     sourceType: 'solo_model',
-    soloImageUrl: 'assets/models/look_10.jpg',
+    soloImageUrl: 'assets/models/look_10.png',
     modelBox: [0.12, 0.88, 0.04, 0.96],
     p1: {
       name: 'Champagne Gold Zari Corset & Silk Cape',
-      subtitle: 'Hand-embroidered Banarasi gold zardozi corset with attached floor cape',
+      subtitle: 'Hand-embroidered Banarasi gold zardozi corset with attached cape',
       priceNumeric: 64990,
       mrpNumeric: 105990,
       category: 'Indian Couture',
-      cropBox: [0.18, 0.80, 0.22, 0.62],
+      cropBox: [0.22, 0.78, 0.215, 0.59],
       maskNeckline: true,
       fabric: 'Pure Katan Silk Brocade & Tissue Cape',
       fit: 'Structured Boned Corset',
@@ -477,7 +429,7 @@ const RAW_LOOKS: RawLookSpec[] = [
       priceNumeric: 44990,
       mrpNumeric: 72990,
       category: 'Indian Couture',
-      cropBox: [0.22, 0.76, 0.42, 0.90],
+      cropBox: [0.22, 0.78, 0.42, 0.88],
       maskNeckline: false,
       fabric: 'Handloom Varanasi Silk Zari Brocade',
       fit: 'High-Waist Box-Pleated Column',
@@ -487,13 +439,14 @@ const RAW_LOOKS: RawLookSpec[] = [
     },
   },
   {
+    // Single 1-Piece Gown
     lookNumber: 11,
-    title: 'Amethyst Pleated Chiffon & Pearl Bag',
+    title: 'Amethyst Pleated Chiffon Couture Gown',
     subtitle: 'Solo Runway Edition • Look 11',
-    silhouette: 'Four-Tier Micro-Pleated Chiffon Gown & Pearl Minaudière',
+    silhouette: 'Four-Tier Micro-Pleated Chiffon Gown',
     accentHex: '#7e22ce',
     sourceType: 'solo_model',
-    soloImageUrl: 'assets/models/look_11.jpg',
+    soloImageUrl: 'assets/models/look_11.png',
     modelBox: [0.15, 0.85, 0.03, 0.96],
     p1: {
       name: 'Amethyst Tiered Micro-Pleated Chiffon Gown',
@@ -501,7 +454,7 @@ const RAW_LOOKS: RawLookSpec[] = [
       priceNumeric: 41990,
       mrpNumeric: 67990,
       category: 'Couture Gowns',
-      cropBox: [0.24, 0.82, 0.16, 0.87],
+      cropBox: [0.25, 0.75, 0.19, 0.865],
       maskNeckline: true,
       fabric: 'Featherweight Silk Chiffon',
       fit: 'Cinch-Waist Four-Tier Maxi',
@@ -509,29 +462,16 @@ const RAW_LOOKS: RawLookSpec[] = [
       description:
         'Ethereal lavender-amethyst gown with a ruffled mock neck, sheer pleated bishop sleeves, and four floating tiers of sunburst-pleated chiffon.',
     },
-    p2: {
-      name: 'Hand-Beaded Mother-of-Pearl Top-Handle Bag',
-      subtitle: 'Artisanal ivory pearl-woven structured box minaudière',
-      priceNumeric: 16990,
-      mrpNumeric: 27990,
-      category: 'Footwear & Bags',
-      cropBox: [0.28, 0.44, 0.51, 0.67],
-      maskNeckline: false,
-      fabric: 'Freshwater Pearl Beads on Satin Frame',
-      fit: 'Structured Mini Tote (Fits Pro Max Phone)',
-      occasion: 'Bridal & Cocktail Accessory',
-      description:
-        'Hand-woven pearl box bag with a sculptural pearl ring handle and gold-plated kiss-lock clasp.',
-    },
   },
   {
+    // Single 1-Piece Tuxedo Gown
     lookNumber: 12,
     title: 'Obsidian Satin-Lapel Tuxedo Evening Gown',
     subtitle: 'Solo Runway Edition • Look 12',
     silhouette: 'Plunging Peak-Lapel Tuxedo Floor-Length Gown',
     accentHex: '#18181b',
     sourceType: 'solo_model',
-    soloImageUrl: 'assets/models/look_12.jpg',
+    soloImageUrl: 'assets/models/look_12.png',
     modelBox: [0.18, 0.82, 0.04, 0.96],
     p1: {
       name: 'Obsidian Peak-Lapel Tuxedo Couture Gown',
@@ -539,37 +479,24 @@ const RAW_LOOKS: RawLookSpec[] = [
       priceNumeric: 52990,
       mrpNumeric: 84990,
       category: 'Couture Gowns',
-      cropBox: [0.28, 0.72, 0.18, 0.88],
+      cropBox: [0.31, 0.69, 0.205, 0.88],
       maskNeckline: true,
-      fabric: ' Barathea Wool & Duchess Silk Satin',
+      fabric: 'Barathea Wool & Duchess Silk Satin',
       fit: 'Sculpted Hourglass Trumpet Hem',
       occasion: 'Black-Tie Gala & Awards Night',
       description:
         'Commanding black-tie tuxedo gown combining sharp duchess-satin peak lapels and a single-button satin cummerbund waist with a flared floor-length skirt.',
     },
-    p2: {
-      name: 'Obsidian Patent-Pointed Stiletto Pumps',
-      subtitle: ' sleek black patent leather pointed-toe evening pumps',
-      priceNumeric: 17990,
-      mrpNumeric: 28990,
-      category: 'Footwear & Bags',
-      cropBox: [0.38, 0.62, 0.83, 0.95],
-      maskNeckline: false,
-      fabric: 'Italian Patent Calfskin',
-      fit: '100mm Stiletto Heel',
-      occasion: 'Formal & Red Carpet',
-      description:
-        'Razor-sharp pointed stiletto pumps in mirror-gloss black patent leather.',
-    },
   },
   {
+    // Single 1-Piece Draped Midi Dress
     lookNumber: 13,
-    title: 'Terracotta Raw Silk Draped Midi & Belt',
+    title: 'Terracotta Raw Silk Draped Midi Dress',
     subtitle: 'Solo Runway Edition • Look 13',
-    silhouette: 'Asymmetric Folded Raw Silk Dress & Sculpted Leather Belt',
+    silhouette: 'Asymmetric Folded Raw Silk Midi Dress',
     accentHex: '#9a3412',
     sourceType: 'solo_model',
-    soloImageUrl: 'assets/models/look_13.jpg',
+    soloImageUrl: 'assets/models/look_13.png',
     modelBox: [0.18, 0.82, 0.03, 0.96],
     p1: {
       name: 'Terracotta Tussar Silk Asymmetric Draped Dress',
@@ -577,7 +504,7 @@ const RAW_LOOKS: RawLookSpec[] = [
       priceNumeric: 29990,
       mrpNumeric: 48990,
       category: 'Couture Gowns',
-      cropBox: [0.30, 0.68, 0.17, 0.79],
+      cropBox: [0.31, 0.69, 0.20, 0.785],
       maskNeckline: true,
       fabric: 'Handspun Bhagalpuri Tussar Silk',
       fit: 'Draped Asymmetric Midi',
@@ -585,37 +512,24 @@ const RAW_LOOKS: RawLookSpec[] = [
       description:
         'Rich burnt-terracotta raw silk dress sculpted with diagonal shoulder pleats and a cascading waterfall side drape.',
     },
-    p2: {
-      name: 'Espresso Saddle-Leather Belt & Strappy Heels Set',
-      subtitle: 'Wide brass-buckled waist belt & matching block-heel sandals',
-      priceNumeric: 15990,
-      mrpNumeric: 25990,
-      category: 'Footwear & Bags',
-      cropBox: [0.36, 0.67, 0.80, 0.96],
-      maskNeckline: false,
-      fabric: 'Vegetable-Tanned Espresso Calfskin',
-      fit: '80mm Architectural Block Heel',
-      occasion: 'Day-to-Evening Luxury',
-      description:
-        'Hand-stitched espresso brown leather sandals paired with our signature antique-brass waist belt.',
-    },
   },
   {
+    // Single 1-Piece Pre-Draped Sari Gown
     lookNumber: 14,
     title: 'Ivory Pearl-Encrusted Couture Sari Gown',
     subtitle: 'Solo Indian Couture Edition • Look 14',
-    silhouette: 'Pre-Draped Pearl Sari Gown with Structured Shoulder Cape',
+    silhouette: 'Pre-Draped Pearl Sari Gown with Shoulder Cape',
     accentHex: '#d6d3d1',
     sourceType: 'solo_model',
-    soloImageUrl: 'assets/models/look_14.jpg',
+    soloImageUrl: 'assets/models/look_14.png',
     modelBox: [0.16, 0.92, 0.04, 0.95],
     p1: {
       name: 'Ivory Pearl-Embroidered Pre-Draped Sari Gown',
-      subtitle: 'Hand-beaded freshwater pearl & crystal couture sari with train',
+      subtitle: 'Hand-beaded freshwater pearl & crystal couture sari gown with train',
       priceNumeric: 74990,
       mrpNumeric: 119990,
       category: 'Indian Couture',
-      cropBox: [0.30, 0.90, 0.24, 0.91],
+      cropBox: [0.16, 0.88, 0.215, 0.895],
       maskNeckline: true,
       fabric: 'Pure Silk Georgette with Hand-Sewn Pearls',
       fit: 'Pre-Draped Couture Sari Fit',
@@ -623,29 +537,16 @@ const RAW_LOOKS: RawLookSpec[] = [
       description:
         'Masterpiece ivory couture sari gown embellished with over 18,000 hand-sewn pearls and glass bugle beads, finished with a sweeping pallu train.',
     },
-    p2: {
-      name: 'Sculpted Pearl-Epaulette Couture Sari Blouse',
-      subtitle: 'Architectural cap-sleeve pearl-encrusted corset choli',
-      priceNumeric: 27990,
-      mrpNumeric: 44990,
-      category: 'Indian Couture',
-      cropBox: [0.33, 0.70, 0.23, 0.45],
-      maskNeckline: true,
-      fabric: 'Raw Silk with Linear Pearl Embroidery',
-      fit: 'Structured Padded Couture Blouse',
-      occasion: 'Bridal & Festive Couture',
-      description:
-        'Power-shoulder couture blouse featuring cascading rows of graduated pearls across the shoulders and sweetheart neckline.',
-    },
   },
   {
+    // Single 1-Piece Column Gown
     lookNumber: 15,
     title: 'Peacock Teal Satin & Ostrich Plume Gown',
     subtitle: 'Solo Runway Edition • Look 15',
     silhouette: 'Bias-Cut Liquid Satin Column Gown with Feather Cuffs',
     accentHex: '#0f766e',
     sourceType: 'solo_model',
-    soloImageUrl: 'assets/models/look_15.jpg',
+    soloImageUrl: 'assets/models/look_15.png',
     modelBox: [0.18, 0.82, 0.04, 0.96],
     p1: {
       name: 'Peacock Teal Liquid Satin Feather-Cuff Gown',
@@ -653,7 +554,7 @@ const RAW_LOOKS: RawLookSpec[] = [
       priceNumeric: 45990,
       mrpNumeric: 73990,
       category: 'Couture Gowns',
-      cropBox: [0.26, 0.74, 0.20, 0.86],
+      cropBox: [0.28, 0.72, 0.215, 0.865],
       maskNeckline: true,
       fabric: '30-Momme Mulberry Silk Satin & Ostrich Plumes',
       fit: 'Bias-Cut Column Silhouette',
@@ -661,29 +562,16 @@ const RAW_LOOKS: RawLookSpec[] = [
       description:
         'Mesmerizing peacock-teal silk satin column gown that skims the body like liquid glass, accented with dramatic dyed ostrich-feather cuffs.',
     },
-    p2: {
-      name: 'Champagne-Silver Minimalist Evening Sandals',
-      subtitle: 'Single-strap metallic silver leather evening heels',
-      priceNumeric: 16490,
-      mrpNumeric: 26990,
-      category: 'Footwear & Bags',
-      cropBox: [0.40, 0.62, 0.82, 0.95],
-      maskNeckline: false,
-      fabric: 'Metallic Specchio Leather',
-      fit: '95mm Slim Heel',
-      occasion: 'Evening & Party',
-      description:
-        'Ultra-clean single-band metallic sandals designed to elongate the leg.',
-    },
   },
   {
+    // Single 1-Piece Cocktail Dress
     lookNumber: 16,
-    title: 'Rose-Gold Metallic Pleated Lamé Cocktail',
+    title: 'Rose-Gold Metallic Pleated Lamé Cocktail Dress',
     subtitle: 'Solo Runway Edition • Look 16',
     silhouette: 'Plunging Sunburst-Pleated Rose-Gold Lamé Dress',
     accentHex: '#be185d',
     sourceType: 'solo_model',
-    soloImageUrl: 'assets/models/look_16.jpg',
+    soloImageUrl: 'assets/models/look_16.png',
     modelBox: [0.20, 0.80, 0.04, 0.96],
     p1: {
       name: 'Rose-Gold Metallic Sunburst Pleated Cocktail Dress',
@@ -691,37 +579,24 @@ const RAW_LOOKS: RawLookSpec[] = [
       priceNumeric: 34990,
       mrpNumeric: 55990,
       category: 'Couture Gowns',
-      cropBox: [0.30, 0.68, 0.19, 0.65],
+      cropBox: [0.31, 0.69, 0.21, 0.65],
       maskNeckline: true,
       fabric: 'Metallic Rose-Gold Silk Blend Lamé',
       fit: 'Fitted Bodice & Flared Pleated Skirt',
       occasion: 'Cocktail Party, After-Party & Club Luxe',
       description:
-        'Luminous rose-gold metallic lamé dress featuring a pleated V-bodice, widehorizontally ruched waist cummerbund, and a kinetic knife-pleated skirt.',
-    },
-    p2: {
-      name: 'Rose-Gold Metallic Ankle-Strap Stilettos',
-      subtitle: 'Matching rose-gold specchio leather 105mm evening heels',
-      priceNumeric: 17490,
-      mrpNumeric: 28490,
-      category: 'Footwear & Bags',
-      cropBox: [0.40, 0.72, 0.81, 0.96],
-      maskNeckline: false,
-      fabric: 'Rose-Gold Specchio Calfskin',
-      fit: '105mm Stiletto',
-      occasion: 'Cocktail & Bridal Reception',
-      description:
-        'High-shine rose-gold stiletto sandals with delicate ankle buckles.',
+        'Luminous rose-gold metallic lamé dress featuring a pleated V-bodice, wide horizontally ruched waist cummerbund, and a kinetic knife-pleated skirt.',
     },
   },
   {
+    // 2 Separate Pieces: Ruffle Cape Top + Wide-Leg Palazzo Pants
     lookNumber: 17,
     title: 'Marigold Saffron Ruffle Cape & Palazzo',
     subtitle: 'Solo Indian Couture Edition • Look 17',
     silhouette: 'Three-Tier Chanderi Silk Ruffle Cape & Wide Palazzos',
     accentHex: '#d97706',
     sourceType: 'solo_model',
-    soloImageUrl: 'assets/models/look_17.jpg',
+    soloImageUrl: 'assets/models/look_17.png',
     modelBox: [0.20, 0.80, 0.04, 0.96],
     p1: {
       name: 'Marigold Saffron Chanderi Tiered Ruffle Cape Top',
@@ -729,7 +604,7 @@ const RAW_LOOKS: RawLookSpec[] = [
       priceNumeric: 31990,
       mrpNumeric: 51990,
       category: 'Indian Couture',
-      cropBox: [0.28, 0.76, 0.19, 0.56],
+      cropBox: [0.29, 0.71, 0.20, 0.54],
       maskNeckline: true,
       fabric: 'Handwoven Chanderi Silk Tissue',
       fit: 'Fluid Layered Poncho Cape',
@@ -743,23 +618,24 @@ const RAW_LOOKS: RawLookSpec[] = [
       priceNumeric: 21490,
       mrpNumeric: 34990,
       category: 'Indian Couture',
-      cropBox: [0.32, 0.74, 0.45, 0.93],
+      cropBox: [0.31, 0.69, 0.46, 0.88],
       maskNeckline: false,
       fabric: 'Pure Mulberry Raw Silk',
       fit: 'High-Rise Tailored Palazzo',
       occasion: 'Festive & Indo-Western',
       description:
-        ' Crisp marigold raw-silk palazzo trousers with pintuck center seams and side pockets.',
+        'Crisp marigold raw-silk palazzo trousers with pintuck center seams and side pockets.',
     },
   },
   {
+    // Single 1-Piece Column Gown
     lookNumber: 18,
-    title: 'Liquid Silver Crystal-Mesh Column & Clutch',
+    title: 'Liquid Silver Crystal-Mesh Column Gown',
     subtitle: 'Solo Runway Edition • Look 18',
-    silhouette: 'Swarovski-Mesh Long-Sleeve Column Gown & Envelope Clutch',
+    silhouette: 'Swarovski-Mesh Long-Sleeve Column Evening Gown',
     accentHex: '#64748b',
     sourceType: 'solo_model',
-    soloImageUrl: 'assets/models/look_18.jpg',
+    soloImageUrl: 'assets/models/look_18.png',
     modelBox: [0.20, 0.80, 0.04, 0.96],
     p1: {
       name: 'Liquid Silver Crystal-Mesh Column Evening Gown',
@@ -767,7 +643,7 @@ const RAW_LOOKS: RawLookSpec[] = [
       priceNumeric: 62990,
       mrpNumeric: 99990,
       category: 'Couture Gowns',
-      cropBox: [0.31, 0.68, 0.24, 0.88],
+      cropBox: [0.27, 0.73, 0.195, 0.86],
       maskNeckline: true,
       fabric: 'Micro-Crystal Metallic Mesh over Silk Jersey',
       fit: 'Sculpted Column Maxi',
@@ -775,29 +651,16 @@ const RAW_LOOKS: RawLookSpec[] = [
       description:
         'Dazzling liquid-silver column gown encrusted with micro-faceted crystal mesh that shimmers like diamond chainmail under evening lights.',
     },
-    p2: {
-      name: 'Silver Crystal-Mesh Foldover Envelope Clutch',
-      subtitle: 'Matching silver crystal-paved evening clutch bag',
-      priceNumeric: 19490,
-      mrpNumeric: 31990,
-      category: 'Footwear & Bags',
-      cropBox: [0.51, 0.70, 0.45, 0.58],
-      maskNeckline: false,
-      fabric: 'Crystal Mesh & Nappa Lining',
-      fit: 'Detachable Silver Chain Strap Included',
-      occasion: 'Gala & Cocktail',
-      description:
-        'Ergonomic envelope clutch paved in matching silver micro-crystals with magnetic closure.',
-    },
   },
   {
+    // Single 1-Piece Leather Trench Dress
     lookNumber: 19,
     title: 'Deep Burgundy Sculpted Leather Trench Dress',
     subtitle: 'Solo Runway Edition • Look 19',
-    silhouette: 'Double-Breasted Oxblood Leather Trench Dress & Boots',
+    silhouette: 'Double-Breasted Oxblood Leather Trench Dress',
     accentHex: '#7f1d1d',
     sourceType: 'solo_model',
-    soloImageUrl: 'assets/models/look_19.jpg',
+    soloImageUrl: 'assets/models/look_19.png',
     modelBox: [0.20, 0.80, 0.04, 0.96],
     p1: {
       name: 'Deep Burgundy Lambskin Leather Trench Dress',
@@ -805,7 +668,7 @@ const RAW_LOOKS: RawLookSpec[] = [
       priceNumeric: 56990,
       mrpNumeric: 91990,
       category: 'Tailoring & Coats',
-      cropBox: [0.28, 0.73, 0.16, 0.70],
+      cropBox: [0.30, 0.70, 0.195, 0.70],
       maskNeckline: true,
       fabric: 'Supple Oxblood Italian Lambskin',
       fit: 'Double-Breasted Cinched Midi',
@@ -813,29 +676,16 @@ const RAW_LOOKS: RawLookSpec[] = [
       description:
         'Sculptural deep-burgundy leather trench dress featuring notched lapels, tonal leather-wrapped buttons, and a silver-buckled waist belt.',
     },
-    p2: {
-      name: 'Burgundy Pointed-Toe Stiletto Ankle Boots',
-      subtitle: 'Oxblood calfskin heeled ankle boots with side zip',
-      priceNumeric: 25990,
-      mrpNumeric: 41990,
-      category: 'Footwear & Bags',
-      cropBox: [0.38, 0.68, 0.78, 0.97],
-      maskNeckline: false,
-      fabric: 'Polished Oxblood Calfskin',
-      fit: '95mm Stiletto Boot',
-      occasion: 'Runway & Evening',
-      description:
-        'Sleek pointed-toe ankle boots in matching deep burgundy calfskin leather.',
-    },
   },
   {
+    // Complete Bridal Lehenga Ensemble
     lookNumber: 20,
     title: 'Royal Ruby & Antique Gold Bridal Lehenga',
     subtitle: 'Grand Finale Indian Couture • Look 20',
-    silhouette: 'Hand-Embroidered Zardozi Peacock Lehenga & Organza Dupatta',
+    silhouette: 'Hand-Embroidered Zardozi Peacock Bridal Lehenga Set',
     accentHex: '#9f1239',
     sourceType: 'solo_model',
-    soloImageUrl: 'assets/models/look_20.jpg',
+    soloImageUrl: 'assets/models/look_20.png',
     modelBox: [0.04, 0.96, 0.04, 0.96],
     p1: {
       name: 'Royal Ruby & Antique Gold Zardozi Bridal Lehenga',
@@ -843,27 +693,13 @@ const RAW_LOOKS: RawLookSpec[] = [
       priceNumeric: 124990,
       mrpNumeric: 199990,
       category: 'Indian Couture',
-      cropBox: [0.18, 0.82, 0.24, 0.93],
+      cropBox: [0.08, 0.92, 0.22, 0.895],
       maskNeckline: true,
       fabric: 'Pure Mulberry Velvet & Silk Organza Dupatta',
       fit: '24-Kali Royal Flared Bridal Lehenga',
       occasion: 'Grand Bridal Wedding & Royal Reception',
       description:
         'Our showstopping Look 20 Grand Finale bridal lehenga, hand-crafted over 1,400 artisan hours with antique gold dabka, nakshi, and peacock zardozi arches.',
-    },
-    p2: {
-      name: 'Zardozi Jewel-Neck Choli & Gold Latkan Dupatta',
-      subtitle: 'Sweetheart zardozi bridal blouse with scalloped tulle dupatta',
-      priceNumeric: 48990,
-      mrpNumeric: 78990,
-      category: 'Indian Couture',
-      cropBox: [0.28, 0.72, 0.23, 0.56],
-      maskNeckline: true,
-      fabric: 'Pure Silk Velvet & Gold Tissue Net',
-      fit: 'Custom-Fit Structured Bridal Choli',
-      occasion: 'Bridal Couture',
-      description:
-        'Intricately embroidered sweetheart-neck bridal choli paired with a sheer crimson silk-organza dupatta bordered in gold zari.',
     },
   },
 ];
@@ -872,18 +708,21 @@ export const LOOKS_DATA: LookEntry[] = [];
 export const PIECES_DATA: PieceItem[] = [];
 
 RAW_LOOKS.forEach((raw, idx) => {
-  const p1Id = idx * 2;
-  const p2Id = idx * 2 + 1;
-
-  const p1Discount = Math.round(((raw.p1.mrpNumeric - raw.p1.priceNumeric) / raw.p1.mrpNumeric) * 100);
-  const p2Discount = Math.round(((raw.p2.mrpNumeric - raw.p2.priceNumeric) / raw.p2.mrpNumeric) * 100);
-
   const pieceSourceType = raw.sourceType === 'higgs_models' ? 'higgs_pieces' : 'solo_garment';
+  const totalInLook: 1 | 2 = raw.p2 ? 2 : 1;
+  const firstPieceIndex = PIECES_DATA.length;
+  const lookPieceIds: number[] = [];
+
+  const p1Id = PIECES_DATA.length;
+  const p1Discount = Math.round(
+    ((raw.p1.mrpNumeric - raw.p1.priceNumeric) / raw.p1.mrpNumeric) * 100
+  );
 
   PIECES_DATA.push({
     id: p1Id,
     lookNumber: raw.lookNumber,
     pieceNumber: 1,
+    totalPiecesInLook: totalInLook,
     sourceType: pieceSourceType,
     cropBox: raw.p1.cropBox,
     soloImageUrl: raw.soloImageUrl,
@@ -909,36 +748,46 @@ RAW_LOOKS.forEach((raw, idx) => {
     colors: COLOR_PALETTES[idx % COLOR_PALETTES.length],
     bankOffers: DEFAULT_BANK_OFFERS,
   });
+  lookPieceIds.push(p1Id);
 
-  PIECES_DATA.push({
-    id: p2Id,
-    lookNumber: raw.lookNumber,
-    pieceNumber: 2,
-    sourceType: pieceSourceType,
-    cropBox: raw.p2.cropBox,
-    soloImageUrl: raw.soloImageUrl,
-    maskNeckline: raw.p2.maskNeckline,
-    name: raw.p2.name,
-    subtitle: raw.p2.subtitle,
-    price: `₹${raw.p2.priceNumeric.toLocaleString('en-IN')}`,
-    priceNumeric: raw.p2.priceNumeric,
-    mrp: `₹${raw.p2.mrpNumeric.toLocaleString('en-IN')}`,
-    mrpNumeric: raw.p2.mrpNumeric,
-    discountLabel: `${p2Discount}% off`,
-    category: raw.p2.category,
-    description: raw.p2.description,
-    fabric: raw.p2.fabric,
-    pattern: 'Atelier Hand-Finished Couture',
-    occasion: raw.p2.occasion,
-    care: 'Specialist Luxury Dry Clean Only',
-    fit: raw.p2.fit,
-    origin: 'Maison Vell Atelier — Paris & Mumbai',
-    rating: Number((4.6 + ((idx + 1) % 4) * 0.1).toFixed(1)),
-    reviewsCount: 112 + idx * 23,
-    sizes: ['XS', 'S', 'M', 'L', 'XL', 'XXL'],
-    colors: COLOR_PALETTES[(idx + 1) % COLOR_PALETTES.length],
-    bankOffers: DEFAULT_BANK_OFFERS,
-  });
+  if (raw.p2) {
+    const p2Id = PIECES_DATA.length;
+    const p2Discount = Math.round(
+      ((raw.p2.mrpNumeric - raw.p2.priceNumeric) / raw.p2.mrpNumeric) * 100
+    );
+
+    PIECES_DATA.push({
+      id: p2Id,
+      lookNumber: raw.lookNumber,
+      pieceNumber: 2,
+      totalPiecesInLook: 2,
+      sourceType: pieceSourceType,
+      cropBox: raw.p2.cropBox,
+      soloImageUrl: raw.soloImageUrl,
+      maskNeckline: raw.p2.maskNeckline,
+      name: raw.p2.name,
+      subtitle: raw.p2.subtitle,
+      price: `₹${raw.p2.priceNumeric.toLocaleString('en-IN')}`,
+      priceNumeric: raw.p2.priceNumeric,
+      mrp: `₹${raw.p2.mrpNumeric.toLocaleString('en-IN')}`,
+      mrpNumeric: raw.p2.mrpNumeric,
+      discountLabel: `${p2Discount}% off`,
+      category: raw.p2.category,
+      description: raw.p2.description,
+      fabric: raw.p2.fabric,
+      pattern: 'Atelier Hand-Finished Couture',
+      occasion: raw.p2.occasion,
+      care: 'Specialist Luxury Dry Clean Only',
+      fit: raw.p2.fit,
+      origin: 'Maison Vell Atelier — Paris & Mumbai',
+      rating: Number((4.6 + ((idx + 1) % 4) * 0.1).toFixed(1)),
+      reviewsCount: 112 + idx * 23,
+      sizes: ['XS', 'S', 'M', 'L', 'XL', 'XXL'],
+      colors: COLOR_PALETTES[(idx + 1) % COLOR_PALETTES.length],
+      bankOffers: DEFAULT_BANK_OFFERS,
+    });
+    lookPieceIds.push(p2Id);
+  }
 
   LOOKS_DATA.push({
     index: idx,
@@ -950,6 +799,7 @@ RAW_LOOKS.forEach((raw, idx) => {
     sourceType: raw.sourceType,
     modelBox: raw.modelBox,
     soloImageUrl: raw.soloImageUrl,
-    pieceIds: [p1Id, p2Id],
+    pieceIds: lookPieceIds,
+    firstPieceIndex,
   });
 });
